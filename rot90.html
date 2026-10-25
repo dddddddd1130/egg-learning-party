@@ -1,0 +1,327 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no"/>
+<title>绕点旋转 90° — 动手看一看</title>
+<style>
+  :root {
+    --bg: #fff8f0;
+    --ink: #2c2c2c;
+    --blue: #3a7bd5;
+    --orange: #e67e22;
+    --red: #e74c3c;
+    --grid: #e0dcd4;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; font-family: "PingFang SC", "Noto Sans SC", "Microsoft YaHei", sans-serif;
+    background: linear-gradient(160deg, #fff8f0 0%, #ffe8d6 100%);
+    color: var(--ink); min-height: 100vh;
+    display: flex; flex-direction: column; align-items: center;
+    padding: 12px 12px 28px;
+  }
+  h1 { font-size: 1.25rem; margin: 8px 0 4px; text-align: center; }
+  .sub { color: #666; font-size: .9rem; margin-bottom: 10px; text-align: center; }
+  .card {
+    background: #fff; border-radius: 16px; box-shadow: 0 8px 28px rgba(0,0,0,.08);
+    padding: 12px; width: min(520px, 100%);
+  }
+  canvas { width: 100%; height: auto; display: block; border-radius: 12px; background: #fffef8; touch-action: none; }
+  .btns { display: flex; flex-wrap: wrap; gap: 8px; justify-content: center; margin-top: 12px; }
+  button {
+    border: none; border-radius: 999px; padding: 10px 18px; font-size: 1rem;
+    font-weight: 600; cursor: pointer; color: #fff;
+    box-shadow: 0 3px 0 rgba(0,0,0,.15);
+  }
+  button:active { transform: translateY(2px); box-shadow: none; }
+  .b1 { background: var(--blue); }
+  .b2 { background: var(--orange); }
+  .b3 { background: #27ae60; }
+  .b4 { background: #7f8c8d; }
+  .tip {
+    margin-top: 12px; background: #fff5e6; border-left: 4px solid var(--orange);
+    border-radius: 8px; padding: 10px 12px; font-size: .92rem; line-height: 1.55;
+    min-height: 3.2em;
+  }
+  .legend { display: flex; gap: 16px; justify-content: center; margin-top: 8px; font-size: .85rem; }
+  .dot { display: inline-block; width: 12px; height: 12px; border-radius: 3px; margin-right: 4px; vertical-align: middle; }
+  .steps { display: flex; gap: 6px; justify-content: center; margin-top: 10px; flex-wrap: wrap; }
+  .steps span {
+    background: #f0f0f0; border-radius: 8px; padding: 4px 10px; font-size: .8rem; color: #555;
+  }
+  .steps span.on { background: #ffe0b2; color: #bf360c; font-weight: 700; }
+</style>
+</head>
+<body>
+  <h1>🎯 四边形绕点 D 顺时针转 90°</h1>
+  <p class="sub">钉子钉在 D 上，图形顺时针拧四分之一圈</p>
+  <div class="card">
+    <canvas id="c" width="520" height="480"></canvas>
+    <div class="legend">
+      <span><i class="dot" style="background:#5dade2"></i>原图形</span>
+      <span><i class="dot" style="background:#e67e22"></i>旋转中</span>
+      <span><i class="dot" style="background:#e74c3c"></i>点 D（转轴）</span>
+    </div>
+    <div class="steps" id="stepDots">
+      <span data-s="0">① 看原图</span>
+      <span data-s="1">② 转起来</span>
+      <span data-s="2">③ 看结果</span>
+      <span data-s="3">④ 逐点对</span>
+    </div>
+    <div class="btns">
+      <button class="b1" id="btnPlay">▶ 播放旋转</button>
+      <button class="b2" id="btnStep">下一步讲解</button>
+      <button class="b3" id="btnReset">↺ 重置</button>
+    </div>
+    <div class="tip" id="tip">点「播放旋转」，看蓝色四边形绕红点 D 顺时针转 90°。</div>
+  </div>
+<script>
+(() => {
+  const canvas = document.getElementById('c');
+  const ctx = canvas.getContext('2d');
+  const tip = document.getElementById('tip');
+  const cols = 9, rows = 7, cell = 48;
+  const margin = { l: 44, t: 36 };
+
+  // coords: origin bottom-left of grid, y up
+  const D = [4, 3];
+  const pts0 = { A:[3,4], B:[4,6], C:[5,4], D:[4,3] };
+  const labels = ['A','B','C','D'];
+
+  function rot90cw(p, c) {
+    const x = p[0]-c[0], y = p[1]-c[1];
+    return [c[0]+y, c[1]-x];
+  }
+  const pts1 = {};
+  for (const k of labels) pts1[k] = rot90cw(pts0[k], D);
+
+  function lerp(a, b, t) { return a + (b-a)*t; }
+  function lerpPt(p, q, t) { return [lerp(p[0],q[0],t), lerp(p[1],q[1],t)]; }
+
+  // Angular interpolation for true rotation feel
+  function rotAround(p, c, deg) {
+    const rad = deg * Math.PI / 180;
+    const x = p[0]-c[0], y = p[1]-c[1];
+    const cos = Math.cos(rad), sin = Math.sin(rad);
+    // clockwise: use -angle in standard math (ccw positive)
+    return [c[0] + x*cos + y*sin, c[1] - x*sin + y*cos];
+  }
+
+  function toXY(gx, gy) {
+    return [margin.l + gx*cell, margin.t + (rows-gy)*cell];
+  }
+
+  let angle = 0; // 0..90
+  let mode = 0; // 0 idle, 1 animating, 2 done, 3 point-by-point
+  let pointIdx = 0;
+  let animId = null;
+
+  const tips = [
+    '点「播放旋转」，看蓝色四边形绕红点 D 顺时针转 90°。',
+    '正在旋转… 想象钉子钉在 D，整块图形顺时针拧。',
+    '转好了！橙色是新位置。D 没动，A′ B′ C′ 都顺时针跑了一格“弯道”。',
+    ''
+  ];
+  const pointTips = [
+    "看 A：原来在 D 的左 1、上 1。顺时针 90° 后，到 A′：D 的右 1、上 1。",
+    "看 B：原来在 D 正上方 3 格。转完到 B′：D 正右方 3 格。",
+    "看 C：原来在 D 右 1、上 1。转完到 C′：D 右 1、下 1。",
+    "D 是转轴，一直钉在原地。把 A′B′C′D 连起来就画完啦！",
+  ];
+
+  function setStepHighlight(s) {
+    document.querySelectorAll('#stepDots span').forEach(el => {
+      el.classList.toggle('on', +el.dataset.s === s);
+    });
+  }
+
+  function drawGrid() {
+    ctx.strokeStyle = '#e0dcd4';
+    ctx.lineWidth = 1.5;
+    for (let i = 0; i <= cols; i++) {
+      const x = margin.l + i*cell;
+      ctx.beginPath(); ctx.moveTo(x, margin.t); ctx.lineTo(x, margin.t+rows*cell); ctx.stroke();
+    }
+    for (let j = 0; j <= rows; j++) {
+      const y = margin.t + j*cell;
+      ctx.beginPath(); ctx.moveTo(margin.l, y); ctx.lineTo(margin.l+cols*cell, y); ctx.stroke();
+    }
+  }
+
+  function drawPoly(ptsMap, fill, stroke, alpha=1) {
+    ctx.save();
+    ctx.globalAlpha = alpha;
+    ctx.beginPath();
+    labels.forEach((k,i) => {
+      const [x,y] = toXY(...ptsMap[k]);
+      if (i===0) ctx.moveTo(x,y); else ctx.lineTo(x,y);
+    });
+    ctx.closePath();
+    ctx.fillStyle = fill;
+    ctx.fill();
+    ctx.strokeStyle = stroke;
+    ctx.lineWidth = 3;
+    ctx.stroke();
+    ctx.restore();
+  }
+
+  function drawPoint(gx, gy, color, label, offset=[0,-16]) {
+    const [x,y] = toXY(gx, gy);
+    ctx.beginPath();
+    ctx.arc(x, y, 7, 0, Math.PI*2);
+    ctx.fillStyle = color;
+    ctx.fill();
+    ctx.fillStyle = color;
+    ctx.font = 'bold 18px sans-serif';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillText(label, x+offset[0], y+offset[1]);
+  }
+
+  function currentPts(ang) {
+    const m = {};
+    for (const k of labels) m[k] = rotAround(pts0[k], D, ang);
+    return m;
+  }
+
+  function draw() {
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+    drawGrid();
+
+    // ghost original
+    drawPoly(pts0, 'rgba(93,173,226,0.25)', '#3498db', 1);
+
+    // rotating / result
+    const cur = currentPts(angle);
+    const fill = angle < 90 ? 'rgba(230,126,34,0.55)' : 'rgba(230,126,34,0.7)';
+    drawPoly(cur, fill, '#d35400', 1);
+
+    // arc guide for B
+    if (angle > 0 && angle < 90) {
+      const [dx,dy] = toXY(...D);
+      ctx.beginPath();
+      ctx.strokeStyle = 'rgba(0,0,0,0.2)';
+      ctx.lineWidth = 2;
+      ctx.setLineDash([4,4]);
+      // B is 3 up from D → radius 3*cell
+      ctx.arc(dx, dy, 3*cell, -Math.PI/2, -Math.PI/2 + angle*Math.PI/180, false);
+      ctx.stroke();
+      ctx.setLineDash([]);
+    }
+
+    // labels original (faint when done)
+    const oAlpha = angle > 5 ? 0.45 : 1;
+    ctx.globalAlpha = oAlpha;
+    drawPoint(...pts0.A, '#2980b9', 'A', [-16,-14]);
+    drawPoint(...pts0.B, '#2980b9', 'B', [0,-18]);
+    drawPoint(...pts0.C, '#2980b9', 'C', [16,-10]);
+    ctx.globalAlpha = 1;
+
+    // current points
+    if (angle > 1) {
+      const p = currentPts(angle);
+      const lab = angle >= 90 ? ["A′","B′","C′"] : ["A","B","C"];
+      drawPoint(...p.A, '#d35400', lab[0], [16,-14]);
+      drawPoint(...p.B, '#d35400', lab[1], [20,4]);
+      drawPoint(...p.C, '#d35400', lab[2], [16,16]);
+    }
+
+    // D always on top
+    const [dx,dy] = toXY(...D);
+    ctx.beginPath();
+    ctx.arc(dx, dy, 10, 0, Math.PI*2);
+    ctx.fillStyle = '#e74c3c';
+    ctx.fill();
+    ctx.lineWidth = 3;
+    ctx.strokeStyle = '#fff';
+    ctx.stroke();
+    ctx.fillStyle = '#e74c3c';
+    ctx.font = 'bold 16px sans-serif';
+    ctx.textAlign = 'left';
+    ctx.fillText('D 转轴', dx+14, dy+18);
+
+    // point-by-point highlight
+    if (mode === 3) {
+      const keys = ['A','B','C','D'];
+      const k = keys[pointIdx];
+      const from = pts0[k], to = pts1[k];
+      ctx.save();
+      ctx.strokeStyle = '#f1c40f';
+      ctx.lineWidth = 3;
+      ctx.setLineDash([6,4]);
+      const a = toXY(...from), b = toXY(...to);
+      ctx.beginPath(); ctx.moveTo(...a); ctx.lineTo(...b); ctx.stroke();
+      ctx.setLineDash([]);
+      // highlight target
+      ctx.beginPath();
+      ctx.arc(b[0], b[1], 14, 0, Math.PI*2);
+      ctx.strokeStyle = '#f39c12';
+      ctx.lineWidth = 3;
+      ctx.stroke();
+      ctx.restore();
+    }
+  }
+
+  function play() {
+    if (animId) cancelAnimationFrame(animId);
+    mode = 1; angle = 0; pointIdx = 0;
+    tip.textContent = tips[1];
+    setStepHighlight(1);
+    const start = performance.now();
+    const dur = 1600;
+    function frame(t) {
+      const p = Math.min(1, (t-start)/dur);
+      // ease in-out
+      const e = p<.5 ? 2*p*p : -1+(4-2*p)*p;
+      angle = 90 * e;
+      draw();
+      if (p < 1) animId = requestAnimationFrame(frame);
+      else {
+        angle = 90; mode = 2; tip.textContent = tips[2];
+        setStepHighlight(2); draw();
+      }
+    }
+    animId = requestAnimationFrame(frame);
+  }
+
+  function reset() {
+    if (animId) cancelAnimationFrame(animId);
+    angle = 0; mode = 0; pointIdx = 0;
+    tip.textContent = tips[0];
+    setStepHighlight(0);
+    draw();
+  }
+
+  function nextStep() {
+    if (mode !== 3 && angle < 90) {
+      // jump to done then enter point mode
+      if (animId) cancelAnimationFrame(animId);
+      angle = 90; mode = 3; pointIdx = 0;
+      tip.textContent = pointTips[0];
+      setStepHighlight(3);
+      draw();
+      return;
+    }
+    if (mode !== 3) {
+      mode = 3; pointIdx = 0;
+      tip.textContent = pointTips[0];
+      setStepHighlight(3);
+      draw();
+      return;
+    }
+    pointIdx = (pointIdx + 1) % 4;
+    tip.textContent = pointTips[pointIdx];
+    draw();
+  }
+
+  document.getElementById('btnPlay').onclick = play;
+  document.getElementById('btnReset').onclick = reset;
+  document.getElementById('btnStep').onclick = nextStep;
+
+  setStepHighlight(0);
+  draw();
+})();
+</script>
+</body>
+</html>
